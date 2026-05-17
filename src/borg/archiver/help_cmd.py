@@ -15,13 +15,13 @@ class HelpMixIn:
         patterns described here to include only desired files and/or exclude
         unwanted ones. Patterns can be used
 
-        - for ``--exclude`` option,
-        - in the file given with ``--exclude-from`` option,
-        - for ``--pattern`` option,
-        - in the file given with ``--patterns-from`` option and
-        - for ``PATH`` arguments that explicitly support them.
+        - with the ``--exclude`` option,
+        - in the file given with the ``--exclude-from`` option,
+        - with the ``--pattern`` option,
+        - in the file given with the ``--patterns-from`` option, and
+        - with ``PATH`` arguments that explicitly support them.
 
-        The path/filenames used as input for the pattern matching start with the
+        The paths/filenames used as input for pattern matching start with the
         currently active recursion root. You usually give the recursion root(s)
         when invoking borg and these can be either relative or absolute paths.
 
@@ -41,56 +41,64 @@ class HelpMixIn:
           i.e., when you back up ``/this/gets/stripped/./this/gets/archived``,
           patterns must match ``this/gets/stripped/this/gets/archived``.
 
+        Depending on which paths and patterns you pass to Borg, Borg might backup a
+        sub-directory or file, but not its parent directories. This won't cause any
+        issues when attempting to extract or mount an archive, but note that user,
+        group, permissions, etc. of these parent directories cannot be restored.
+
+        Pattern Styles
+        ++++++++++++++
+
         Borg supports different pattern styles. To define a non-default
         style for a specific pattern, prefix it with two characters followed
         by a colon ':' (i.e. ``fm:path/*``, ``sh:path/**``).
 
-        Note: Windows users must only use forward slashes in patterns, not backslashes.
-
-        The default pattern style for ``--exclude`` differs from ``--pattern``, see below.
+        The default pattern style for ``--exclude`` differs from ``--pattern``:
+        ``--exclude`` and ``--exclude-from`` use ``fm:`` selectors by default,
+        ``--pattern`` and ``--patterns-from`` use ``sh:`` selectors instead.
 
         `Fnmatch <https://docs.python.org/3/library/fnmatch.html>`_, selector ``fm:``
-            This is the default style for ``--exclude`` and ``--exclude-from``.
             These patterns use a variant of shell pattern syntax, with '\\*' matching
             any number of characters, '?' matching any single character, '[...]'
             matching any single character specified, including ranges, and '[!...]'
             matching any character not specified. For the purpose of these patterns,
-            the path separator (forward slash '/') is not treated specially.
-            Wrap meta-characters in brackets for a literal
-            match (i.e. ``[?]`` to match the literal character '?'). For a path
-            to match a pattern, the full path must match, or it must match
+            the path separator (forward slash '/') is not treated specially. Wrap
+            meta-characters in brackets for a literal match (i.e. ``[?]`` to match
+            the literal character '?').
+
+            For a path to match a pattern, the full path must match, or it must match
             from the start of the full path to just before a path separator. Except
             for the root path, paths will never end in the path separator when
-            matching is attempted.  Thus, if a given pattern ends in a path
-            separator, a '\\*' is appended before matching is attempted. A leading
-            path separator is always removed.
+            matching is attempted. If a pattern ends in a path separator, a '\\*' is
+            appended before matching is attempted. Consequently, if an exclusion
+            pattern ends with a slash (e.g. ``some/path/``), the directory will be
+            included, but not its content. If an exclusion pattern does not end with
+            a slash (e.g. ``some/path``), neither the directory nor its contents will
+            be included.
+
+            Patterns are normalized before matching, i.e., a leading path separator,
+            multiple consecutive path separators, and components like '/./' are
+            removed before matching is attempted.
 
         Shell-style patterns, selector ``sh:``
-            This is the default style for ``--pattern`` and ``--patterns-from``.
-            Like fnmatch patterns these are similar to shell patterns. The difference
-            is that the pattern may include ``**/`` for matching zero or more directory
-            levels, ``*`` for matching zero or more arbitrary characters with the
-            exception of any path separator, ``{}`` containing comma-separated
-            alternative patterns. A leading path separator is always removed.
-
-        `Regular expressions <https://docs.python.org/3/library/re.html>`_, selector ``re:``
-            Unlike shell patterns, regular expressions are not required to match the full
-            path and any substring match is sufficient. It is strongly recommended to
-            anchor patterns to the start ('^'), to the end ('$') or both.
+            Shell-style patterns are strongly related to Fnmatch patterns. ``sh:``
+            patterns behave exactly like ``fm:`` patterns, with the exception that
+            '\\*' matches zero or more arbitrary characters, but not path separators.
+            Use '**/' instead to explicitly match zero or more directory levels. You
+            can also additionally use '{}' with comma-separated alternative patterns.
 
         Path prefix, selector ``pp:``
             This pattern style is useful to match whole subdirectories. The pattern
-            ``pp:root/somedir`` matches ``root/somedir`` and everything therein.
-            A leading path separator is always removed.
+            ``pp:root/somedir`` matches ``root/somedir`` and everything therein. It
+            does not support wildcards. Patterns are normalized before matching.
 
         Path full-match, selector ``pf:``
-            This pattern style is (only) useful to match full paths.
-            This is kind of a pseudo pattern as it cannot have any variable or
-            unspecified parts - the full path must be given. ``pf:root/file.ext``
-            matches ``root/file.ext`` only. A leading path separator is always
-            removed.
+            This pattern style is (only) useful to match full paths. This is kind of a
+            pseudo pattern, as it cannot have any variable or unspecified parts - the
+            full path must be given. ``pf:some/path`` matches just the ``some/path``
+            directory, but not its contents. Patterns are normalized before matching.
 
-            Implementation note: this is implemented via very time-efficient O(1)
+            Implementation note: This is implemented via very time-efficient O(1)
             hashtable lookups (this means you can have huge amounts of such patterns
             without impacting performance much).
             Due to that, this kind of pattern does not respect any context or order.
@@ -98,6 +106,21 @@ class HelpMixIn:
             (if the directory recursion encounters it).
             Other include/exclude patterns that would normally match will be ignored.
             Same logic applies for exclude.
+
+        `Regular expressions <https://docs.python.org/3/library/re.html>`_, selector ``re:``
+            Regular expressions are a powerful alternative to shell patterns, but must
+            be treated carefully to match properly. The regular expression syntax is
+            similar to Perl's and described in the `Python documentation for the re
+            module <https://docs.python.org/3/library/re.html>`_.
+
+            Each archived path is matched individually. So, for example, if your
+            pattern matches a directory path, it does not necessarily also match the
+            directory's contents. Unless you anchor patterns to the start ('^'), or to
+            the end ('$'), or to both, patterns might match arbitrary sub-strings. For
+            example, you might attempt to match '*.exe' files with ``re:.*\.exe``, but
+            in reality this also matches ``next.exercise.md``. It should be something
+            like ``re:.+\.exe$`` instead. '/' is not treated specially. Patterns are
+            not normalized.
 
         .. note::
 
@@ -122,28 +145,32 @@ class HelpMixIn:
             These are replaced by characters in the unicode private use area (``U+F0xx``) like
             the CIFS mapchars feature also does it. It won't be pretty, but at least it works.
 
-        Exclusions can be passed via the command line option ``--exclude``. When used
-        from within a shell, the patterns should be quoted to protect them from
-        expansion.
+        Exclusions
+        ++++++++++
 
-        Patterns matching special characters, e.g. whitespace, within a shell may
-        require adjustments, such as putting quotation marks around the arguments.
-        Example:
-        Using bash, the following command line option would match and exclude "item name":
-        ``--pattern='-path/item name'``
-        Note that when patterns are used within a pattern file directly read by borg,
-        e.g. when using ``--exclude-from`` or ``--patterns-from``, there is no shell
-        involved and thus no quotation marks are required.
+        Exclusion patterns can be passed via the command line options ``--exclude``,
+        and ``--exclude-from``. Just pass an exclusion pattern, possibly prefixed by
+        a selector different from the default ``fm:``.
+
+        .. note::
+
+            When using ``--exclude`` and ``--pattern`` within a shell, special
+            characters like whitespaces must be quoted to protect them from shell
+            expansion. For example, to exclude "some path/some file", pass
+            ``--exclude 'some path/some file'``.
 
         The ``--exclude-from`` option permits loading exclusion patterns from a text
-        file with one pattern per line. Lines empty or starting with the hash sign
-        '#' after removing whitespace on both ends are ignored. The optional style
-        selector prefix is also supported for patterns loaded from a file. Due to
-        whitespace removal, paths with whitespace at the beginning or end can only be
-        excluded using regular expressions.
+        file with one pattern per line. Whitespaces on both ends are removed. Empty
+        lines or lines starting with the hash sign ('#') are ignored. The optional
+        style selector prefix is also supported. Due to whitespace trimming, paths
+        with whitespaces at the beginning or end can only be excluded using regular
+        expressions. Since Borg reads the patterns directly from a file, no quoting
+        is necessary.
 
-        To test your exclusion patterns without performing an actual backup you can
-        run ``borg create --list --dry-run ...``.
+        .. note::
+
+            Test your exclusion patterns before performing an actual backup. Simply
+            run ``borg create --dry-run --list ...``.
 
         Examples::
 
@@ -182,10 +209,17 @@ class HelpMixIn:
             EOF
             $ borg create --exclude-from exclude.txt archive /
 
+        Advanced patterns
+        +++++++++++++++++
+
         A more general and easier to use way to define filename matching patterns
-        exists with the ``--pattern`` and ``--patterns-from`` options. Using
-        these, you may specify the backup roots, default pattern styles and
-        patterns for inclusion and exclusion.
+        exists with the ``--pattern`` and ``--patterns-from`` options. Using these,
+        you may not only specify exclusion patterns like with ``--exclude`` and
+        ``--exclude-from``, but additionally specify backup roots, default pattern
+        styles, and inclusion patterns. Unless specified otherwise, ``--pattern`` and
+        ``--patterns-from`` patterns use the ``sh:`` selector by default.
+
+        The following prefixes are supported:
 
         Root path prefix ``R``
             A recursion root path starts with the prefix ``R``, followed by a path
@@ -198,7 +232,7 @@ class HelpMixIn:
             All patterns following this line in the same patterns file will use this
             style until another style is specified or the end of the file is reached.
             When the current patterns file is finished, the default pattern style will
-            reset.
+            reset. This has no effect with the ``--pattern`` option.
 
         Exclude pattern prefix ``-``
             Use the prefix ``-``, followed by a pattern, to define an exclusion.
@@ -216,10 +250,10 @@ class HelpMixIn:
 
         The first matching pattern is used, so if an include pattern matches
         before an exclude pattern, the file is backed up. Note that a no-recurse
-        exclude stops examination of subdirectories so that potential includes
-        will not match - use normal excludes for such use cases.
+        exclude (``!`` prefix) stops examination of subdirectories. Consequently,
+        potential includes will not match; use normal excludes in such use cases.
 
-        Example::
+        Here is an example ``patterns.txt`` mixing inclusion and exclusion patterns::
 
             # Define the recursion root
             R /
@@ -238,19 +272,14 @@ class HelpMixIn:
             # that are not specifically included earlier.
             - **
 
-        **Tip: You can easily test your patterns with --dry-run and  --list**::
-
-            $ borg create --dry-run --list --patterns-from patterns.txt archive
-
-        This will list the considered files one per line, prefixed with a
-        character that indicates the action (e.g. 'x' for excluding, see
-        **Item flags** in `borg create` usage docs).
-
         .. note::
 
-            It is possible that a subdirectory or file is matched while its parent
-            directories are not. In that case, parent directories are not backed
-            up and thus their user, group, permission, etc. cannot be restored.
+            Test your patterns before performing an actual backup. Simply run
+            ``borg create --dry-run --list --patterns-from patterns.txt ...``.
+
+            This will list the considered files one per line, prefixed with a
+            character that indicates the action (e.g. 'x' for excluding, see
+            **Item flags** in `borg create` usage docs).
 
         Patterns (``--pattern``) and excludes (``--exclude``) from the command line are
         considered first (in the order of appearance). Then patterns from ``--patterns-from``
@@ -260,19 +289,16 @@ class HelpMixIn:
 
             # back up pics, but not the ones from 2018, except the good ones:
             # note: using = is essential to avoid cmdline argument parsing issues.
-            borg create --pattern=+pics/2018/good --pattern=-pics/2018 archive pics
+            $ borg create --pattern=+pics/2018/good --pattern=-pics/2018 archive pics
 
             # back up only JPG/JPEG files (case insensitive) in all home directories:
-            borg create --pattern '+ re:\\.jpe?g(?i)$' archive /home
+            $ borg create --pattern '+ re:\\.jpe?g(?i)$' archive /home
 
             # back up homes, but exclude big downloads (like .ISO files) or hidden files:
-            borg create --exclude 're:\\.iso(?i)$' --exclude 'sh:home/**/.*' archive /home
+            $ borg create --exclude 're:\\.iso(?i)$' --exclude 'sh:home/**/.*' archive /home
 
             # use a file with patterns (recursion root '/' via command line):
-            borg create --patterns-from patterns.lst archive /
-
-        The patterns.lst file could look like that::
-
+            $ cat >patterns.txt <<EOF
             # "sh:" pattern style is the default
             # exclude caches
             - home/*/.cache
@@ -284,24 +310,21 @@ class HelpMixIn:
             - home/*
             # don't even look in /dev, /proc, /run, /sys, /tmp (note: would exclude files like /device, too)
             ! re:^(dev|proc|run|sys|tmp)
+            EOF
+            $ borg create --patterns-from patterns.txt archive /
 
-        You can specify recursion roots either on the command line or in a patternfile::
-
-            # these two commands do the same thing
-            borg create --exclude home/bobby/junk archive /home/bobby /home/susan
-            borg create --patterns-from patternfile.lst archive
-
-        patternfile.lst::
-
-            # note that excludes use fm: by default and patternfiles use sh: by default.
-            # therefore, we need to specify fm: to have the same exact behavior.
+            # these two borg create commands do the exact same thing,
+            # allowing you to share the same patterns between multiple repositories
+            $ borg create --exclude home/bobby/junk archive /home/bobby /home/susan
+            $ cat >patterns.txt <<EOF
+            # note that excludes use fm: by default and pattern files use sh: by default
+            # therefore, we need to specify fm: to have the same exact behavior
             P fm
             R /home/bobby
             R /home/susan
             - home/bobby/junk
-
-        This allows you to share the same patterns between multiple repositories
-        without needing to specify them on the command line.\n\n"""
+            EOF
+            $ borg create --patterns-from patterns.txt archive\n\n"""
     )
     helptext["match-archives"] = textwrap.dedent(
         """
